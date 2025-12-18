@@ -1,0 +1,23 @@
+[project]
+name = "tcga-tp53-pipeline"
+version = "0.1.0"
+description = "TP53-centered multi-omics analysis on TCGA PanCanAtlas via UCSC Xena."
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "scipy>=1.10",
+  "statsmodels>=0.14",
+  "lifelines>=0.28",
+  "matplotlib>=3.7",
+  "seaborn>=0.13",
+  "tqdm>=4.66",
+  "xenaPython>=1.0.8",
+  "pyarrow>=14.0",
+  "gseapy>=1.1.3",
+  "joblib>=1.3",
+]
+
+[tool.ruff]
+line-length = 100
+

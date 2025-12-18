@@ -1,0 +1,13 @@
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+statsmodels>=0.14
+lifelines>=0.28
+matplotlib>=3.7
+seaborn>=0.13
+tqdm>=4.66
+xenaPython>=1.0.8
+pyarrow>=14.0
+gseapy>=1.1.3
+joblib>=1.3
+
