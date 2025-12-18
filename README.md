@@ -69,14 +69,68 @@ python scripts/run_tcga_tp53_pipeline.py \
   --min-events 30
 ```
 
-Useful options:
-- `--log-level DEBUG|INFO|WARNING|ERROR`
-- `--log-file <path>` (default: `results/run.log`)
+If `results/` already exists from a previous run, use `--overwrite` or choose a new `--out`.
+
+## Command-line parameters
+
+See the full built-in help:
+
+```bash
+python scripts/run_tcga_tp53_pipeline.py --help
+```
+
+### Core
+
+- `--out` (default: `results`): output directory (tables/figures/logs are written here)
+- `--cache-dir` (default: `cache`): cache directory for downloaded/processed Xena matrices
+- `--top-n` (default: `10`): number of cancer types selected for analysis (selected by worst OS median)
+- `--min-samples` (default: `80`): minimum cohort size per cancer (after primary-tumor filtering + 1 sample/patient)
+- `--min-events` (default: `30`): minimum number of **OS events** per cancer for inclusion
+
+### Optional analyses
+
+- `--methylation-top-genes` (default: `200`): targeted methylation uses `TP53 + top N DE genes` per cancer
+  - Set `0` to skip targeted methylation.
+- `--max-survival-genes` (default: `0`): enable a (slow) gene×TP53 survival interaction screen on expression
+  - `0` disables (recommended for a first run).
+
+### Performance / reproducibility
+
+- `--threads` (default: `4`): parallel workers for the interaction screen (only used if `--max-survival-genes > 0`)
+- `--seed` (default: `0`): random seed for reproducibility (the main pipeline is mostly deterministic)
+- `--overwrite`: allow writing into a non-empty `--out` directory
+
+### Logging / UI
+
+- `--log-level` (default: `INFO`): `DEBUG|INFO|WARNING|ERROR`
+- `--log-file` (default: `<out>/run.log`): write logs to a file
 - `--no-progress`: disable tqdm progress bars
-- `--methylation-top-genes 200`: how many DE genes to include in methylation targeting
-- `--max-survival-genes 0`: set >0 to enable a (slow) gene×TP53 interaction screen on expression
 
 Tip: to make sure you are using the venv Python, run `./.venv/bin/python scripts/run_tcga_tp53_pipeline.py ...`.
+
+## Examples
+
+Small/fast smoke run (less output, faster):
+
+```bash
+python scripts/run_tcga_tp53_pipeline.py \
+  --out results_smoke \
+  --cache-dir cache \
+  --top-n 3 \
+  --min-samples 50 \
+  --min-events 15 \
+  --methylation-top-genes 0
+```
+
+Enable the expression interaction screen (can be slow):
+
+```bash
+python scripts/run_tcga_tp53_pipeline.py \
+  --out results \
+  --cache-dir cache \
+  --max-survival-genes 2000 \
+  --threads 8
+```
 
 ## Caching (important)
 

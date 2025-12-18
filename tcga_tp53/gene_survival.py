@@ -17,13 +17,21 @@ def cox_gene_tp53_interaction_screen(
     genes: list[str],
     penalizer: float = 0.1,
     min_events: int = 20,
+    n_jobs: int = 1,
 ) -> pd.DataFrame:
     """
     Per-gene Cox model with interaction:
       h(t) ~ x + TP53 + x*TP53
 
     Returns one row per gene with interaction p-value and implied group-specific HRs.
+    Set n_jobs>1 to parallelize across genes (threading backend).
     """
+    try:
+        n_jobs = int(n_jobs)
+    except Exception:
+        n_jobs = 1
+    n_jobs = max(1, n_jobs)
+
     common_samples = [s for s in clinical.index if s in expr.columns]
     if not common_samples:
         return pd.DataFrame()
@@ -43,10 +51,9 @@ def cox_gene_tp53_interaction_screen(
     if int(d0[event_col].sum()) < min_events:
         return pd.DataFrame()
 
-    results: list[dict] = []
-    for gene in genes:
+    def fit_one_gene(gene: str) -> dict | None:
         if gene not in expr.index:
-            continue
+            return None
         x = pd.to_numeric(expr.loc[gene, d0.index], errors="coerce")
         # z-score for stability
         x = (x - x.mean()) / (x.std(ddof=0) + 1e-8)
@@ -55,17 +62,21 @@ def cox_gene_tp53_interaction_screen(
         df["x_tp53"] = df["x"] * df[tp53_col]
         df = df.dropna()
         if df.empty or int(df[event_col].sum()) < min_events:
-            continue
+            return None
 
         cph = CoxPHFitter(penalizer=penalizer)
         try:
-            cph.fit(df[[time_col, event_col, "x", tp53_col, "x_tp53"]], duration_col=time_col, event_col=event_col)
+            cph.fit(
+                df[[time_col, event_col, "x", tp53_col, "x_tp53"]],
+                duration_col=time_col,
+                event_col=event_col,
+            )
         except Exception:
-            continue
+            return None
 
         summ = cph.summary
         if "x_tp53" not in summ.index or "x" not in summ.index:
-            continue
+            return None
 
         coef_x = float(summ.loc["x", "coef"])
         coef_int = float(summ.loc["x_tp53", "coef"])
@@ -74,18 +85,35 @@ def cox_gene_tp53_interaction_screen(
         hr_wt = float(np.exp(coef_x))
         hr_mut = float(np.exp(coef_x + coef_int))
 
-        results.append(
-            {
-                "gene": gene,
-                "p_interaction": p_int,
-                "coef_x": coef_x,
-                "coef_x_tp53": coef_int,
-                "hr_wt": hr_wt,
-                "hr_mut": hr_mut,
-                "n": int(df.shape[0]),
-                "events": int(df[event_col].sum()),
-            }
-        )
+        return {
+            "gene": gene,
+            "p_interaction": p_int,
+            "coef_x": coef_x,
+            "coef_x_tp53": coef_int,
+            "hr_wt": hr_wt,
+            "hr_mut": hr_mut,
+            "n": int(df.shape[0]),
+            "events": int(df[event_col].sum()),
+        }
+
+    if n_jobs > 1:
+        try:
+            from joblib import Parallel, delayed
+
+            rows = Parallel(n_jobs=n_jobs, prefer="threads")(delayed(fit_one_gene)(g) for g in genes)
+            results = [r for r in rows if r is not None]
+        except Exception:
+            results = []
+            for g in genes:
+                row = fit_one_gene(g)
+                if row is not None:
+                    results.append(row)
+    else:
+        results = []
+        for g in genes:
+            row = fit_one_gene(g)
+            if row is not None:
+                results.append(row)
 
     if not results:
         return pd.DataFrame()
@@ -94,4 +122,3 @@ def cox_gene_tp53_interaction_screen(
     out["fdr_interaction"] = fdr_bh(out["p_interaction"].to_numpy())
     out = out.sort_values(["fdr_interaction", "p_interaction"]).reset_index(drop=True)
     return out
-

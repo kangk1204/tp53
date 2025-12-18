@@ -90,6 +90,14 @@ def run_pipeline(
     show_progress: bool = True,
 ) -> None:
     logger = logging.getLogger(__name__)
+    if out_dir.exists():
+        if out_dir.is_file():
+            raise FileExistsError(f"--out must be a directory, but got an existing file: {out_dir}")
+        if any(out_dir.iterdir()) and not overwrite:
+            raise FileExistsError(
+                f"Output directory is not empty: {out_dir} (use --overwrite or choose a new --out)"
+            )
+    np.random.seed(seed)
     params = PipelineParams(
         out_dir=out_dir,
         cache_dir=cache_dir,
@@ -105,7 +113,7 @@ def run_pipeline(
     ensure_dir(out_dir)
 
     logger.info(
-        "starting pipeline: out=%s cache=%s top_n=%d min_samples=%d min_events=%d methylation_top_genes=%d max_survival_genes=%d",
+        "starting pipeline: out=%s cache=%s top_n=%d min_samples=%d min_events=%d methylation_top_genes=%d max_survival_genes=%d threads=%d seed=%d overwrite=%s",
         out_dir,
         cache_dir,
         top_n,
@@ -113,6 +121,9 @@ def run_pipeline(
         min_events,
         methylation_top_genes,
         max_survival_genes,
+        threads,
+        seed,
+        overwrite,
     )
 
     client = XenaClient(cache_dir=cache_dir, overwrite_cache=False, show_progress=show_progress)
@@ -517,6 +528,7 @@ def _run_one_cancer(
                     genes=genes_screen,
                     penalizer=0.1,
                     min_events=20,
+                    n_jobs=max(1, int(params.threads)),
                 )
                 if not screen.empty:
                     write_tsv(screen, tables_dir / f"expr_tp53_interaction_{endpoint}.tsv")

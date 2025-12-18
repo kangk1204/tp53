@@ -31,10 +31,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--threads",
         type=int,
         default=4,
-        help="Parallel jobs for per-cancer computations (not Xena calls)",
+        help="Parallel workers for compute-heavy steps (e.g., expression interaction screen; not Xena calls)",
     )
-    p.add_argument("--seed", type=int, default=0, help="Random seed (tie-breaks only)")
-    p.add_argument("--overwrite", action="store_true", help="Overwrite existing outputs")
+    p.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility")
+    p.add_argument("--overwrite", action="store_true", help="Allow writing into a non-empty output directory")
     p.add_argument(
         "--log-level",
         type=str,
