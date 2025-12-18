@@ -38,8 +38,8 @@ For each selected cancer type:
 ## Getting the code
 
 ```bash
-git clone https://github.com/<YOUR-ORG-OR-USER>/<YOUR-REPO>.git
-cd <YOUR-REPO>
+git clone https://github.com/kangk1204/tp53.git
+cd tp53
 ```
 
 ## Installation (beginner-friendly)
