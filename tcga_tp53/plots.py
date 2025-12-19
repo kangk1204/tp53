@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import warnings
 
+import matplotlib
+# Force a non-interactive backend to avoid Tkinter-related crashes when using threads.
+matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -17,7 +21,12 @@ def init_style() -> None:
 
 def savefig(fig: plt.Figure, path: Path, *, dpi: int = 200) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout()
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Tight layout not applied.*", category=UserWarning)
+        try:
+            fig.tight_layout()
+        except Exception:
+            pass
     fig.savefig(path, dpi=dpi, bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
@@ -216,15 +225,19 @@ def violin_box_plot(
         return
 
     fig, ax = plt.subplots(figsize=(6.0, 4.8))
+    hue = x_col if palette else None
     sns.violinplot(
         data=d,
         x=x_col,
         y=y_col,
+        hue=hue,
         order=order,
         palette=palette,
         inner=None,
+        dodge=False,
         cut=0,
         linewidth=1,
+        legend=False,
         ax=ax,
     )
     sns.boxplot(
