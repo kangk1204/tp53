@@ -151,29 +151,45 @@ def run_prerank_gsea(
         try:
             import matplotlib.pyplot as plt
             import seaborn as sns
+            import textwrap
 
             d = res.copy()
             if "NES" not in d.columns:
                 continue
-            if "term" not in d.columns:
+            term_col = None
+            if "term" in d.columns:
+                # Back-compat: older outputs may have numeric 'term' (row index) and a separate 'Term' column.
+                try:
+                    numeric_ratio = float(pd.to_numeric(d["term"], errors="coerce").notna().mean())
+                except Exception:
+                    numeric_ratio = 0.0
+                if numeric_ratio > 0.9 and "Term" in d.columns:
+                    term_col = "Term"
+                else:
+                    term_col = "term"
+            elif "Term" in d.columns:
+                term_col = "Term"
+            if term_col is None:
                 continue
             d["NES"] = pd.to_numeric(d["NES"], errors="coerce")
-            d = d.dropna(subset=["NES", "term"])
+            d = d.dropna(subset=["NES", term_col])
             if d.empty:
                 continue
 
             d_pos = d.sort_values("NES", ascending=False).head(10)
             d_neg = d.sort_values("NES", ascending=True).head(10)
             d_plot = pd.concat([d_pos, d_neg], axis=0)
-            d_plot = d_plot.drop_duplicates(subset=["term"]).sort_values("NES", ascending=True)
+            d_plot = d_plot.drop_duplicates(subset=[term_col]).sort_values("NES", ascending=True)
 
             sns.set_theme(style="whitegrid")
             fig, ax = plt.subplots(figsize=(7.5, max(4.0, 0.28 * len(d_plot) + 1.0)))
             colors = ["#2ca02c" if v > 0 else "#1f77b4" for v in d_plot["NES"].to_numpy(dtype=float)]
-            ax.barh(d_plot["term"].astype(str), d_plot["NES"].to_numpy(dtype=float), color=colors)
+            labels = [textwrap.fill(str(x), width=45) for x in d_plot[term_col].astype(str).tolist()]
+            ax.barh(labels, d_plot["NES"].to_numpy(dtype=float), color=colors)
             ax.axvline(0.0, color="black", linewidth=1)
             ax.set_title(f"GSEA prerank ({lib})")
             ax.set_xlabel("Normalized Enrichment Score (NES)")
+            ax.tick_params(axis="y", labelsize=8)
             savefig(fig, fig_path, dpi=300)
             written.append(fig_path)
         except Exception:
