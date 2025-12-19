@@ -35,6 +35,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility")
     p.add_argument("--overwrite", action="store_true", help="Allow writing into a non-empty output directory")
+
+    # Optional analyses / paper-ready outputs
+    p.add_argument(
+        "--run-all",
+        action="store_true",
+        help="Enable all optional analyses (including GSEA). Does not change --max-survival-genes.",
+    )
+    p.add_argument("--gsea", action="store_true", help="Run GSEA prerank on expression DE results")
+    p.add_argument(
+        "--gsea-gene-sets",
+        type=str,
+        nargs="+",
+        default=None,
+        help='GSEA gene set libraries (Enrichr names), e.g. "MSigDB_Hallmark_2020 Reactome_2016"',
+    )
+    p.add_argument("--gsea-permutations", type=int, default=200, help="GSEA permutations (higher = slower)")
+    p.add_argument("--gsea-min-size", type=int, default=10, help="GSEA min gene set size")
+    p.add_argument("--gsea-max-size", type=int, default=500, help="GSEA max gene set size")
+    p.add_argument("--no-tp53-class", action="store_true", help="Disable TP53 mutation class stratification")
+    p.add_argument("--no-extended-cox", action="store_true", help="Disable extended Cox models")
+    p.add_argument("--no-burden-plots", action="store_true", help="Disable burden/PC1 violin+box plots")
+    p.add_argument("--no-stratified-cox", action="store_true", help="Disable pan-cancer stratified Cox models")
+
     p.add_argument(
         "--log-level",
         type=str,
@@ -66,6 +89,16 @@ def main() -> None:
         seed=args.seed,
         overwrite=args.overwrite,
         show_progress=not args.no_progress,
+        run_all=args.run_all,
+        run_tp53_class=not args.no_tp53_class,
+        run_extended_cox=not args.no_extended_cox,
+        run_burden_plots=not args.no_burden_plots,
+        run_gsea=args.gsea,
+        gsea_gene_sets=args.gsea_gene_sets,
+        gsea_permutations=args.gsea_permutations,
+        gsea_min_size=args.gsea_min_size,
+        gsea_max_size=args.gsea_max_size,
+        run_stratified_cox=not args.no_stratified_cox,
     )
 
 

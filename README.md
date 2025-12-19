@@ -93,6 +93,18 @@ python scripts/run_tcga_tp53_pipeline.py --help
   - Set `0` to skip targeted methylation.
 - `--max-survival-genes` (default: `0`): enable a (slow) gene×TP53 survival interaction screen on expression
   - `0` disables (recommended for a first run).
+- `--gsea`: run **GSEA prerank** on the expression DE ranking (writes `gsea/` tables + figures)
+- `--gsea-gene-sets`: gene set libraries (Enrichr names), e.g. `MSigDB_Hallmark_2020 Reactome_2016`
+- `--gsea-permutations` (default: `200`): higher = more stable, slower
+- `--gsea-min-size` / `--gsea-max-size`: filter gene sets by size
+
+### Paper-ready toggles
+
+- `--run-all`: enable all optional analyses **except** the interaction screen (still controlled by `--max-survival-genes`)
+- `--no-tp53-class`: disable TP53 mutation-class stratification
+- `--no-extended-cox`: disable extended Cox models (TP53 + multi-omics covariates)
+- `--no-burden-plots`: disable violin+box plots for burden/PC1 metrics
+- `--no-stratified-cox`: disable pan-cancer stratified Cox models
 
 ### Performance / reproducibility
 
@@ -132,6 +144,18 @@ python scripts/run_tcga_tp53_pipeline.py \
   --threads 8
 ```
 
+Maximum “paper” run (all analyses + interaction screen):
+
+```bash
+python scripts/run_tcga_tp53_pipeline.py \
+  --out results_full \
+  --cache-dir cache \
+  --overwrite \
+  --run-all \
+  --max-survival-genes 2000 \
+  --threads 8
+```
+
 ## Caching (important)
 
 - Downloads and processed matrices are cached under `--cache-dir` (default: `cache/`).
@@ -147,17 +171,23 @@ python scripts/run_tcga_tp53_pipeline.py \
 ### Per-cancer outputs
 For each cancer `CANCER`:
 - `results/<CANCER>/tables/clinical_with_tp53.tsv`: clinical table + `TP53_mut` (0/1) + parsed stage
+- `results/<CANCER>/tables/clinical_with_tp53_omics.tsv`: same, plus derived multi-omics covariates (if available)
 - `results/<CANCER>/tables/survival_summary_OS.tsv` (and PFI/DSS): group sizes, events, KM median
+- `results/<CANCER>/tables/survival_overview_tp53.tsv`: one-row-per-endpoint summary (log-rank, Cox HR/CI/p, PH test p, FDR)
 - `results/<CANCER>/tables/cox_OS.tsv` (and PFI/DSS): Cox model summary (includes TP53 term)
+- `results/<CANCER>/tables/cox_extended_OS.tsv` (and PFI/DSS): Cox model with extra covariates (TMB proxy, CNV burden, immune/stemness PC1 when available)
 - `results/<CANCER>/figures/km_OS.png` (and PFI/DSS): Kaplan–Meier plot with log-rank p-value
 
 Multi-omics tables/figures (if data coverage is sufficient):
 - RNA: `results/<CANCER>/tables/de_expression_tp53.tsv`, `results/<CANCER>/figures/volcano_expression.png`
+- RNA GSEA (if enabled): `results/<CANCER>/tables/gsea/*.tsv`, `results/<CANCER>/figures/gsea/*.png`
 - CNV: `results/<CANCER>/tables/de_cnv_tp53.tsv`, `results/<CANCER>/tables/cnv_burden.tsv`, `results/<CANCER>/figures/volcano_cnv.png`
 - Mutation: `results/<CANCER>/tables/comutation_vs_tp53.tsv`, `results/<CANCER>/tables/tmb_mutated_genes_count.tsv`
 - TP53 hotspots: `results/<CANCER>/tables/tp53_hotspots.tsv`, `results/<CANCER>/figures/tp53_hotspots.png`
-- Immune: `results/<CANCER>/tables/de_immune_sigs_tp53.tsv`, `results/<CANCER>/figures/immune_signatures_top.png`, `results/<CANCER>/tables/immune_subtype_crosstab.tsv`
+- Immune: `results/<CANCER>/tables/de_immune_sigs_tp53.tsv`, `results/<CANCER>/figures/immune_signatures_top.png`, `results/<CANCER>/tables/immune_subtype_crosstab.tsv`, `results/<CANCER>/tables/immune_subtype_association.tsv`, `results/<CANCER>/figures/immune_subtype_stacked.png`
 - Methylation: `results/<CANCER>/tables/dm_methylation_tp53.tsv`, `results/<CANCER>/figures/volcano_methylation.png`
+- Metrics + plots: `results/<CANCER>/tables/tp53_mut_metric_comparisons.tsv`, `results/<CANCER>/figures/*_tp53*.png`
+- TP53 mutation classes (if enabled): `results/<CANCER>/tables/tp53_class_counts.tsv`, `results/<CANCER>/tables/cox_tp53_class_OS.tsv`, `results/<CANCER>/figures/km_tp53_class_OS.png`
 
 Some analyses are automatically skipped when:
 - the cohort is too small, or
@@ -166,6 +196,8 @@ Some analyses are automatically skipped when:
 
 ### Pan-cancer summary
 - `results/pancancer/tables/tp53_cox_summary.tsv`: TP53 HR/p-value by cancer and endpoint
+- `results/pancancer/tables/tp53_cox_meta_random_effects.tsv`: random-effects meta-analysis across cancers (per endpoint)
+- `results/pancancer/tables/tp53_stratified_cox_OS.tsv` (and PFI/DSS): stratified Cox by cancer (TP53 effect across cancers)
 - `results/pancancer/figures/tp53_forest.png`: forest plot by endpoint
 
 ## How to interpret the results (simple guide)
@@ -187,6 +219,10 @@ Some analyses are automatically skipped when:
   - **HR > 1**: TP53-mut has higher hazard (worse prognosis)
   - **HR < 1**: TP53-mut has lower hazard (better prognosis)
 - The model may include covariates (when available): age, gender, stage
+- `ph_p` (if present) is a proportional-hazards assumption test p-value for that term
+
+Extended Cox:
+- `results/<CANCER>/tables/cox_extended_<ENDPOINT>.tsv` adds extra covariates derived from other modalities when available.
 
 ### Differential expression / CNV / immune signatures
 `de_*_tp53.tsv`

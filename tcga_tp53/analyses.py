@@ -7,6 +7,7 @@ import pandas as pd
 from scipy import stats
 
 from tcga_tp53.stats import differential_ttest, fdr_bh
+from tcga_tp53.effect_sizes import odds_ratio_ci
 
 
 def tp53_binary_from_mut_gene(mut_gene: pd.DataFrame) -> pd.Series:
@@ -103,6 +104,8 @@ def comutation_against_tp53(mut_gene: pd.DataFrame, tp53_mut: pd.Series) -> pd.D
     genes = mut_gene.index.to_list()
     pvals = np.ones(len(genes), dtype=float)
     ors = np.full(len(genes), np.nan, dtype=float)
+    or_ci_lo = np.full(len(genes), np.nan, dtype=float)
+    or_ci_hi = np.full(len(genes), np.nan, dtype=float)
     for i in range(len(genes)):
         table = [[int(a[i]), int(b[i])], [int(c[i]), int(d[i])]]
         try:
@@ -111,6 +114,11 @@ def comutation_against_tp53(mut_gene: pd.DataFrame, tp53_mut: pd.Series) -> pd.D
             or_, p = np.nan, 1.0
         ors[i] = or_
         pvals[i] = p
+        ci = odds_ratio_ci(int(a[i]), int(b[i]), int(c[i]), int(d[i]))
+        if ci is not None:
+            _, lo, hi = ci
+            or_ci_lo[i] = lo
+            or_ci_hi[i] = hi
 
     out = pd.DataFrame(
         {
@@ -120,6 +128,8 @@ def comutation_against_tp53(mut_gene: pd.DataFrame, tp53_mut: pd.Series) -> pd.D
             "c_tp53wt_gene_mut": c,
             "d_tp53wt_gene_wt": d,
             "odds_ratio": ors,
+            "odds_ratio_ci_lower": or_ci_lo,
+            "odds_ratio_ci_upper": or_ci_hi,
             "p": pvals,
         }
     )

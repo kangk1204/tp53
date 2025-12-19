@@ -5,7 +5,7 @@ import re
 import numpy as np
 import pandas as pd
 from lifelines import CoxPHFitter, KaplanMeierFitter
-from lifelines.statistics import logrank_test
+from lifelines.statistics import logrank_test, proportional_hazard_test
 
 
 def _to_numeric(s: pd.Series) -> pd.Series:
@@ -77,6 +77,9 @@ def fit_cox_tp53(
 ) -> pd.DataFrame:
     covariates = covariates or []
     cols = [time_col, event_col, tp53_col, *covariates]
+    if any(c not in df.columns for c in cols):
+        return pd.DataFrame()
+
     model_df = df[cols].copy()
     model_df[time_col] = _to_numeric(model_df[time_col])
     model_df[event_col] = _to_numeric(model_df[event_col])
@@ -84,40 +87,25 @@ def fit_cox_tp53(
 
     # Basic type cleanup
     for c in covariates:
-        if c not in model_df.columns:
-            continue
         if model_df[c].dtype == "object":
             continue
         model_df[c] = _to_numeric(model_df[c])
 
-    model_df = model_df.dropna(subset=[time_col, event_col, tp53_col])
-    if model_df.empty or model_df[event_col].sum() < 5:
-        return pd.DataFrame()
-    if model_df[tp53_col].nunique(dropna=True) < 2:
-        return pd.DataFrame()
-
-    # Encode categoricals
-    cat_cols = [c for c in covariates if c in model_df.columns and model_df[c].dtype == "object"]
+    # Encode categoricals (e.g., gender)
+    cat_cols = [c for c in covariates if model_df[c].dtype == "object"]
     if cat_cols:
-        # Avoid treating missing categoricals as a real baseline (pd.get_dummies drops NaNs by default).
+        # pd.get_dummies drops NaNs; make this explicit for reproducibility.
         model_df = model_df.dropna(subset=cat_cols)
         model_df = pd.get_dummies(model_df, columns=cat_cols, drop_first=True)
 
-    # Drop constant columns (lifelines fails on them)
-    for c in list(model_df.columns):
-        if c in {time_col, event_col}:
-            continue
-        if model_df[c].nunique(dropna=True) <= 1:
-            model_df = model_df.drop(columns=[c])
-
-    # Complete-case: lifelines CoxPHFitter does not accept NaNs in covariates.
+    # Complete-case: lifelines CoxPHFitter does not accept NaNs.
     model_df = model_df.dropna()
-    if model_df.empty or model_df[event_col].sum() < 5:
+    if model_df.empty or float(model_df[event_col].sum()) < 5:
         return pd.DataFrame()
     if model_df[tp53_col].nunique(dropna=True) < 2:
         return pd.DataFrame()
 
-    # Dropping rows can turn a previously varying covariate into a constant.
+    # Drop constant columns (lifelines fails on them)
     for c in list(model_df.columns):
         if c in {time_col, event_col}:
             continue
@@ -131,8 +119,78 @@ def fit_cox_tp53(
         cph.fit(model_df, duration_col=time_col, event_col=event_col)
     except Exception:
         return pd.DataFrame()
+
     out = cph.summary.reset_index()
-    # lifelines uses either "covariate" or "index" depending on version
+    if "covariate" in out.columns:
+        out = out.rename(columns={"covariate": "term"})
+    elif "index" in out.columns:
+        out = out.rename(columns={"index": "term"})
+    else:
+        out = out.rename(columns={out.columns[0]: "term"})
+
+    out["n"] = int(model_df.shape[0])
+    out["events"] = int(pd.to_numeric(model_df[event_col], errors="coerce").fillna(0).astype(int).sum())
+
+    # PH assumption check (Schoenfeld residual-based test)
+    try:
+        ph = proportional_hazard_test(cph, model_df, time_transform="rank").summary.reset_index()
+        if "index" in ph.columns:
+            ph = ph.rename(columns={"index": "term"})
+        ph = ph.rename(columns={"test_statistic": "ph_test_statistic", "p": "ph_p"})
+        out = out.merge(ph[["term", "ph_test_statistic", "ph_p"]], on="term", how="left")
+    except Exception:
+        pass
+
+    return out
+
+
+def fit_cox_stratified(
+    df: pd.DataFrame,
+    *,
+    time_col: str,
+    event_col: str,
+    covariates: list[str],
+    strata_col: str,
+    penalizer: float = 0.1,
+) -> pd.DataFrame:
+    """
+    Cox PH with strata (e.g., stratify by cancer type).
+    """
+    cols = [time_col, event_col, strata_col, *covariates]
+    if any(c not in df.columns for c in cols):
+        return pd.DataFrame()
+
+    model_df = df[cols].copy()
+    model_df[time_col] = _to_numeric(model_df[time_col])
+    model_df[event_col] = _to_numeric(model_df[event_col])
+    for c in covariates:
+        if model_df[c].dtype == "object":
+            continue
+        model_df[c] = _to_numeric(model_df[c])
+
+    cat_cols = [c for c in covariates if model_df[c].dtype == "object"]
+    if cat_cols:
+        model_df = model_df.dropna(subset=cat_cols)
+        model_df = pd.get_dummies(model_df, columns=cat_cols, drop_first=True)
+
+    model_df = model_df.dropna()
+    if model_df.empty or float(model_df[event_col].sum()) < 10:
+        return pd.DataFrame()
+
+    # Drop constant columns (lifelines fails on them)
+    for c in list(model_df.columns):
+        if c in {time_col, event_col, strata_col}:
+            continue
+        if model_df[c].nunique(dropna=True) <= 1:
+            model_df = model_df.drop(columns=[c])
+
+    cph = CoxPHFitter(penalizer=penalizer)
+    try:
+        cph.fit(model_df, duration_col=time_col, event_col=event_col, strata=[strata_col])
+    except Exception:
+        return pd.DataFrame()
+
+    out = cph.summary.reset_index()
     if "covariate" in out.columns:
         out = out.rename(columns={"covariate": "term"})
     elif "index" in out.columns:
@@ -141,6 +199,88 @@ def fit_cox_tp53(
         out = out.rename(columns={out.columns[0]: "term"})
     out["n"] = int(model_df.shape[0])
     out["events"] = int(pd.to_numeric(model_df[event_col], errors="coerce").fillna(0).astype(int).sum())
+    out["strata_col"] = strata_col
+    return out
+
+
+def fit_cox_categorical_group(
+    df: pd.DataFrame,
+    *,
+    time_col: str,
+    event_col: str,
+    group_col: str,
+    covariates: list[str] | None = None,
+    categories: list[str] | None = None,
+    penalizer: float = 0.1,
+) -> pd.DataFrame:
+    """
+    Cox PH with a categorical group variable encoded via one-hot (baseline = first category).
+    """
+    covariates = covariates or []
+    cols = [time_col, event_col, group_col, *covariates]
+    if any(c not in df.columns for c in cols):
+        return pd.DataFrame()
+
+    model_df = df[cols].copy()
+    model_df[time_col] = _to_numeric(model_df[time_col])
+    model_df[event_col] = _to_numeric(model_df[event_col])
+    model_df[group_col] = model_df[group_col].astype(str)
+
+    for c in covariates:
+        if model_df[c].dtype == "object":
+            continue
+        model_df[c] = _to_numeric(model_df[c])
+
+    model_df = model_df.dropna(subset=[time_col, event_col, group_col])
+    if model_df.empty or float(model_df[event_col].sum()) < 5:
+        return pd.DataFrame()
+    if model_df[group_col].nunique(dropna=True) < 2:
+        return pd.DataFrame()
+
+    if categories:
+        model_df[group_col] = pd.Categorical(model_df[group_col], categories=categories, ordered=True)
+
+    # Encode categoricals including group_col.
+    cat_cols = [group_col] + [c for c in covariates if model_df[c].dtype == "object"]
+    model_df = model_df.dropna(subset=cat_cols)
+    model_df = pd.get_dummies(model_df, columns=cat_cols, drop_first=True)
+
+    model_df = model_df.dropna()
+    if model_df.empty or float(model_df[event_col].sum()) < 5:
+        return pd.DataFrame()
+
+    # Drop constant columns.
+    for c in list(model_df.columns):
+        if c in {time_col, event_col}:
+            continue
+        if model_df[c].nunique(dropna=True) <= 1:
+            model_df = model_df.drop(columns=[c])
+
+    cph = CoxPHFitter(penalizer=penalizer)
+    try:
+        cph.fit(model_df, duration_col=time_col, event_col=event_col)
+    except Exception:
+        return pd.DataFrame()
+
+    out = cph.summary.reset_index()
+    if "covariate" in out.columns:
+        out = out.rename(columns={"covariate": "term"})
+    elif "index" in out.columns:
+        out = out.rename(columns={"index": "term"})
+    else:
+        out = out.rename(columns={out.columns[0]: "term"})
+    out["n"] = int(model_df.shape[0])
+    out["events"] = int(pd.to_numeric(model_df[event_col], errors="coerce").fillna(0).astype(int).sum())
+
+    try:
+        ph = proportional_hazard_test(cph, model_df, time_transform="rank").summary.reset_index()
+        if "index" in ph.columns:
+            ph = ph.rename(columns={"index": "term"})
+        ph = ph.rename(columns={"test_statistic": "ph_test_statistic", "p": "ph_p"})
+        out = out.merge(ph[["term", "ph_test_statistic", "ph_p"]], on="term", how="left")
+    except Exception:
+        pass
+
     return out
 
 
