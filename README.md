@@ -94,7 +94,8 @@ python scripts/run_tcga_tp53_pipeline.py --help
 - `--max-survival-genes` (default: `0`): enable a (slow) gene×TP53 survival interaction screen on expression
   - `0` disables (recommended for a first run).
 - `--gsea`: run **GSEA prerank** on the expression DE ranking (writes `gsea/` tables + figures)
-- `--gsea-gene-sets`: gene set libraries (Enrichr names), e.g. `MSigDB_Hallmark_2020 Reactome_2016`
+- `--gsea-gene-sets`: gene set libraries (Enrichr names), e.g. `MSigDB_Hallmark_2020 Reactome_2022`
+  - List available libraries: `python -c "import gseapy as gp; print([x for x in gp.get_library_name() if 'Reactome' in x])"`
 - `--gsea-permutations` (default: `200`): higher = more stable, slower
 - `--gsea-min-size` / `--gsea-max-size`: filter gene sets by size
 

@@ -21,14 +21,20 @@ class GseaConfig:
 
 
 def rank_from_de_tstat(de: pd.DataFrame, *, gene_col: str = "gene", t_col: str = "t") -> pd.Series:
+    """
+    Build a prerank Series (index=gene, value=t-statistic), sorted descending.
+    Ties are broken deterministically by gene name for reproducibility.
+    """
     d = de[[gene_col, t_col]].copy().dropna()
     d[gene_col] = d[gene_col].astype(str)
     d = d[~d[gene_col].isin(["", "nan", "None"])]
+    d[t_col] = pd.to_numeric(d[t_col], errors="coerce")
+    d = d.replace([np.inf, -np.inf], np.nan).dropna(subset=[t_col])
     d = d.drop_duplicates(subset=[gene_col], keep="first")
-    r = pd.to_numeric(d[t_col], errors="coerce")
-    out = pd.Series(r.values, index=d[gene_col].values, name="rank")
-    out = out.replace([np.inf, -np.inf], np.nan).dropna()
-    return out.sort_values(ascending=False)
+    if d.empty:
+        return pd.Series(dtype=float, name="rank")
+    d = d.sort_values([t_col, gene_col], ascending=[False, True], kind="mergesort")
+    return pd.Series(d[t_col].to_numpy(dtype=float), index=d[gene_col].to_numpy(dtype=str), name="rank")
 
 
 def run_prerank_gsea(
@@ -60,6 +66,13 @@ def run_prerank_gsea(
         logger.warning("GSEA skipped (gseapy import failed): %s", e)
         return written
 
+    available_libs: set[str] = set()
+    try:
+        available_libs = set(gp.get_library_name())
+    except Exception:
+        # If the lookup fails (e.g., offline), we will try running anyway.
+        available_libs = set()
+
     for lib in cfg.gene_sets:
         safe = "".join([c if c.isalnum() or c in {"-", "_", "."} else "_" for c in lib])
         tsv_path = table_dir / f"{prefix}__gsea__{safe}.tsv"
@@ -72,15 +85,24 @@ def run_prerank_gsea(
             continue
 
         try:
+            is_path = Path(str(lib)).exists()
+        except Exception:
+            is_path = False
+        if (not is_path) and available_libs and lib not in available_libs:
+            logger.warning("GSEA skipped (unsupported gene_sets library): %s", lib)
+            continue
+
+        try:
             pre = gp.prerank(
                 rnk=rank,
                 gene_sets=lib,
-                processes=1,
+                threads=1,
                 permutation_num=int(cfg.permutations),
                 min_size=int(cfg.min_size),
                 max_size=int(cfg.max_size),
                 seed=int(cfg.seed),
                 outdir=None,  # do not let gseapy spam files
+                no_plot=True,
                 verbose=False,
             )
         except Exception as e:
@@ -95,21 +117,33 @@ def run_prerank_gsea(
         # Normalize column names (gseapy versions vary)
         rename = {}
         for c in res.columns:
-            lc = str(c).lower()
-            if lc == "nes":
+            lc = str(c).strip().lower()
+            if lc == "term":
+                rename[c] = "term"
+            elif lc == "nes":
                 rename[c] = "NES"
-            elif lc in {"pval", "p-value", "p_value"}:
+            elif lc in {"pval", "p-value", "p_value", "nom p-val", "nom pval", "p"}:
                 rename[c] = "p"
             elif lc in {"fdr", "fdr q-val", "fdr_q-val", "fdr_qval", "fdr q-val"}:
                 rename[c] = "fdr"
             elif lc in {"es"}:
                 rename[c] = "ES"
-            elif lc in {"lead_genes", "ledge_genes", "lead_genes"}:
+            elif lc in {"lead_genes", "ledge_genes", "lead genes"}:
                 rename[c] = "lead_genes"
+            elif lc == "name":
+                rename[c] = "name"
+            elif lc in {"fwer p-val", "fwer pval"}:
+                rename[c] = "fwer_p"
+            elif lc in {"tag %", "tag%"}:
+                rename[c] = "tag_pct"
+            elif lc in {"gene %", "gene%"}:
+                rename[c] = "gene_pct"
         if rename:
             res = res.rename(columns=rename)
 
-        res = res.reset_index().rename(columns={"index": "term"})
+        if "term" not in res.columns:
+            # Some gseapy versions place terms in the index.
+            res = res.reset_index().rename(columns={"index": "term"})
         write_tsv(res, tsv_path)
         written.append(tsv_path)
 
@@ -120,6 +154,8 @@ def run_prerank_gsea(
 
             d = res.copy()
             if "NES" not in d.columns:
+                continue
+            if "term" not in d.columns:
                 continue
             d["NES"] = pd.to_numeric(d["NES"], errors="coerce")
             d = d.dropna(subset=["NES", "term"])

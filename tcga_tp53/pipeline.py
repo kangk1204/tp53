@@ -254,7 +254,7 @@ def run_pipeline(
         run_pancancer_meta = True
         run_stratified_cox = True
     if gsea_gene_sets is None:
-        gsea_gene_sets = ["MSigDB_Hallmark_2020", "Reactome_2016"]
+        gsea_gene_sets = ["MSigDB_Hallmark_2020", "Reactome_2022"]
     params = PipelineParams(
         out_dir=out_dir,
         cache_dir=cache_dir,

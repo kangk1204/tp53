@@ -48,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         nargs="+",
         default=None,
-        help='GSEA gene set libraries (Enrichr names), e.g. "MSigDB_Hallmark_2020 Reactome_2016"',
+        help='GSEA gene set libraries (Enrichr names), e.g. "MSigDB_Hallmark_2020 Reactome_2022"',
     )
     p.add_argument("--gsea-permutations", type=int, default=200, help="GSEA permutations (higher = slower)")
     p.add_argument("--gsea-min-size", type=int, default=10, help="GSEA min gene set size")
